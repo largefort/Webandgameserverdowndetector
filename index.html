@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Down Detector</title>
+  <!-- Framework7 CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/framework7/7.0.8/css/framework7.bundle.min.css">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <!-- Custom CSS -->
+  <style>
+    body {
+      background-color: #f7f7f8;
+    }
+    .status {
+      font-weight: bold;
+      color: #ff3b30;
+    }
+    .status.online {
+      color: #4cd964;
+    }
+    #map {
+      height: 300px;
+      width: 100%;
+    }
+    .user-report-form {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="view view-main view-init safe-areas">
+      <div class="page">
+        <div class="navbar">
+          <div class="navbar-inner">
+            <div class="title">Server Down Detector</div>
+          </div>
+        </div>
+        <div class="page-content">
+          <div class="block-title">Web Servers</div>
+          <div class="list simple-list" id="web-servers">
+            <!-- Web servers list will be populated here -->
+          </div>
+          <div class="block-title">Game Servers</div>
+          <div class="list simple-list" id="game-servers">
+            <!-- Game servers list will be populated here -->
+          </div>
+          <div class="block-title">User Outage Reports</div>
+          <form class="list user-report-form" id="report-form">
+            <ul>
+              <li>
+                <div class="item-content item-input">
+                  <div class="item-inner">
+                    <div class="item-title item-label">Server</div>
+                    <div class="item-input-wrap">
+                      <input type="text" id="server-name" placeholder="Server Name" required>
+                    </div>
+                  </div>
+                </div>
+              </li>
+              <li>
+                <div class="item-content item-input">
+                  <div class="item-inner">
+                    <div class="item-title item-label">Location</div>
+                    <div class="item-input-wrap">
+                      <input type="text" id="location" placeholder="City, Country" required>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            </ul>
+            <div class="block-footer">
+              <button type="submit" class="button button-fill">Report Outage</button>
+            </div>
+          </form>
+          <div class="block-title">Outage Map</div>
+          <div id="map"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Framework7 JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/framework7/7.0.8/js/framework7.bundle.min.js"></script>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <!-- Custom JS -->
+  <script>
+    // Mock data for servers
+    const servers = {
+      web: [
+        { name: 'Server 1', url: 'https://example1.com' },
+        { name: 'Server 2', url: 'https://example2.com' },
+        { name: 'PSN Network', url: 'https://status.playstation.com' },
+        { name: 'Roblox', url: 'https://roblox.com' },
+      ],
+      game: [
+        { name: 'Game Server 1', url: 'https://gameserver1.com' },
+        { name: 'Game Server 2', url: 'https://gameserver2.com' },
+        { name: 'Roblox Game Server', url: 'https://status.roblox.com' },
+        { name: 'ESO (Elder Scrolls Online)', url: 'https://status.elderscrollsonline.com' },
+        { name: 'FO76 (Fallout 76)', url: 'https://status.fallout.bethesda.net' },
+      ]
+    };
+
+    // Function to check server status
+    async function checkServer(url) {
+      try {
+        const response = await fetch(url, { method: 'HEAD' });
+        return response.ok;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    // Function to update server status
+    async function updateServerStatus() {
+      const webServersContainer = document.getElementById('web-servers');
+      const gameServersContainer = document.getElementById('game-servers');
+
+      webServersContainer.innerHTML = '';
+      gameServersContainer.innerHTML = '';
+
+      for (const server of servers.web) {
+        const status = await checkServer(server.url);
+        webServersContainer.innerHTML += `<li>${server.name}: <span class="status ${status ? 'online' : ''}">${status ? 'Online' : 'Offline'}</span></li>`;
+      }
+
+      for (const server of servers.game) {
+        const status = await checkServer(server.url);
+        gameServersContainer.innerHTML += `<li>${server.name}: <span class="status ${status ? 'online' : ''}">${status ? 'Online' : 'Offline'}</span></li>`;
+      }
+    }
+
+    // User outage reports
+    const outageReports = [];
+
+    // Initialize map
+    const map = L.map('map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Function to add markers to the map
+    function updateMap() {
+      map.eachLayer(function (layer) {
+        if (layer instanceof L.Marker) {
+          map.removeLayer(layer);
+        }
+      });
+      for (const report of outageReports) {
+        const marker = L.marker(report.coords).addTo(map);
+        marker.bindPopup(`<b>${report.server}</b><br>${report.location}`);
+      }
+    }
+
+    // Function to get coordinates from location
+    async function getCoordinates(location) {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`);
+      const data = await response.json();
+      if (data.length > 0) {
+        return [data[0].lat, data[0].lon];
+      }
+      return null;
+    }
+
+    // Handle form submission
+    document.getElementById('report-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const serverName = document.getElementById('server-name').value;
+      const location = document.getElementById('location').value;
+      const coords = await getCoordinates(location);
+      if (coords) {
+        outageReports.push({ server: serverName, location, coords });
+        updateMap();
+        alert('Outage reported successfully!');
+      } else {
+        alert('Failed to get location coordinates.');
+      }
+    });
+
+    // Initialize Framework7 app
+    const app = new Framework7({
+      root: '#app',
+      on: {
+        init() {
+          updateServerStatus();
+        },
+      },
+    });
+  </script>
+</body>
+</html>
